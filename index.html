@@ -272,7 +272,7 @@
     <!-- 1. スタートメニュー画面 -->
     <div class="window" id="menu-screen">
         <h1>一問一答クイズメニュー</h1>
-        <p class="subtitle">画像から全問題を取り込みました。モードを選んでください。</p>
+        <p class="subtitle">自分のやるモードを選んでください。</p>
         
         <button class="menu-btn" onclick="startMode(1)">
             <span>モード 1</span> 1問ずつじっくり挑戦する
@@ -1230,6 +1230,16 @@
                 container.appendChild(itemDiv);
             });
         }
+    
+        // Safari等でのダブルタップによる拡大（ズーム）を強制的に無効化する処理
+        let lastTouchEnd = 0;
+        document.addEventListener('touchend', function (event) {
+            const now = (new Date()).getTime();
+            if (now - lastTouchEnd <= 300) {
+                event.preventDefault(); // 300ms以内の連続タップ（ダブルタップズーム）の既定動作のみを防止
+            }
+            lastTouchEnd = now;
+        }, false);
     </script>
 </body>
 </html>
