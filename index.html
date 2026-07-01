@@ -139,7 +139,6 @@
             justify-content: center;
             overflow: hidden;
             cursor: pointer; /* 全体タップでトグル可能に */
-            touch-action: manipulation;
         }
 
         .a-text {
@@ -172,7 +171,6 @@
             transition: transform 0.3s ease, opacity 0.2s;
             padding: 10px;
             text-align: center;
-            touch-action: manipulation;
         }
 
         /* 開閉（めくる・戻す）アニメーション */
@@ -232,7 +230,6 @@
             border-top: 1px solid #eee;
             padding-top: 15px;
             text-align: center;
-            touch-action: manipulation;
         }
 
         /* 📱 スマートフォン向けレスポンシブ微調整 */
@@ -1230,16 +1227,6 @@
                 container.appendChild(itemDiv);
             });
         }
-    
-        // Safari等でのダブルタップによる拡大（ズーム）を強制的に無効化する処理
-        let lastTouchEnd = 0;
-        document.addEventListener('touchend', function (event) {
-            const now = (new Date()).getTime();
-            if (now - lastTouchEnd <= 300) {
-                event.preventDefault(); // 300ms以内の連続タップ（ダブルタップズーム）の既定動作のみを防止
-            }
-            lastTouchEnd = now;
-        }, false);
     </script>
 </body>
 </html>
