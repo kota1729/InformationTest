@@ -139,6 +139,7 @@
             justify-content: center;
             overflow: hidden;
             cursor: pointer; /* 全体タップでトグル可能に */
+            touch-action: manipulation;
         }
 
         .a-text {
@@ -171,6 +172,7 @@
             transition: transform 0.3s ease, opacity 0.2s;
             padding: 10px;
             text-align: center;
+            touch-action: manipulation;
         }
 
         /* 開閉（めくる・戻す）アニメーション */
@@ -230,6 +232,7 @@
             border-top: 1px solid #eee;
             padding-top: 15px;
             text-align: center;
+            touch-action: manipulation;
         }
 
         /* 📱 スマートフォン向けレスポンシブ微調整 */
@@ -269,7 +272,7 @@
     <!-- 1. スタートメニュー画面 -->
     <div class="window" id="menu-screen">
         <h1>一問一答クイズメニュー</h1>
-        <p class="subtitle">自分のやるモードを選んでください。</p>
+        <p class="subtitle">画像から全問題を取り込みました。モードを選んでください。</p>
         
         <button class="menu-btn" onclick="startMode(1)">
             <span>モード 1</span> 1問ずつじっくり挑戦する
