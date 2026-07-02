@@ -535,7 +535,21 @@
             <h3 style="font-size:15px; color:#8e44ad; margin-bottom:10px;">🔒 管理者ID・パスワードの変更</h3>
             <div class="admin-change-pw-form" style="display:flex; flex-direction:column; gap:10px;">
                 <input type="text" id="admin-new-id" placeholder="新しい管理者ユーザーID">
-                <input type="password" id="admin-new-password" placeholder="新しい管理者パスワード">
+                <div class="password-wrapper">
+
+                    <input
+                        type="password"
+                        id="admin-new-password"
+                        placeholder="新しい管理者パスワード">
+
+                    <button
+                        type="button"
+                        class="toggle-pw-btn"
+                        onclick="toggleAdminPassword(this)">
+                        表示
+                    </button>
+
+                </div>
                 <button class="btn btn-main" style="background:#8e44ad;" onclick="changeAdminCredentials()">認証情報を更新する</button>
             </div>
         </div>
@@ -571,6 +585,24 @@
         async function verifyAdminLogin(uid, pw) {
             const h = await sha256(SALT + ':auth:' + uid + ':' + pw);
             return h === getAdminAuthHash();
+        }
+
+        function toggleAdminPassword(btn) {
+
+            const input =
+                document.getElementById("admin-new-password");
+
+            if (input.type === "password") {
+
+                input.type = "text";
+                btn.innerText = "隠す";
+
+            } else {
+
+                input.type = "password";
+                btn.innerText = "表示";
+
+            }
         }
 
         function toggleAuthPasswordVisibility(btn) {
@@ -886,6 +918,18 @@
             showMainMenu();
         }
 
+        function shuffle(array) {
+            const arr = [...array];
+
+            for (let i = arr.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+
+                [arr[i], arr[j]] = [arr[j], arr[i]];
+            }
+
+            return arr;
+        }
+        
         function startMode(modeNum) {
             currentMode = modeNum;
             currentIndex = 0;
@@ -910,7 +954,7 @@
                 document.getElementById('list-title').innerText = `${subjectName} - 全問一気見リスト`;
                 setupListScreen();
             } else if (modeNum === 3) {
-                activeQuestions = [...questions].sort(() => Math.random() - 0.5);
+                activeQuestions = shuffle(questions);
                 document.getElementById('quiz-title').innerText = `${subjectName} - ランダム実力テスト`;
                 setupQuizScreen();
             } else if (modeNum === 4) {
