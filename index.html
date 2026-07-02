@@ -545,30 +545,9 @@
         </div>
     </div>
 
-    <!-- ===================================================================
-         教科データの読み込み
-         新しい教科を追加する場合は、subjects/ フォルダに新しいファイルを
-         追加し、下に <script src="subjects/xxxx.js"></script> を1行足すだけでOKです。
-         =================================================================== -->
     <script src="subjects/joho_shori.js"></script>
 
     <script>
-        // ===================================================================
-        // 🔒 管理者アカウントの認証情報について
-        // -------------------------------------------------------------------
-        // 以前はここに管理者のユーザーIDとパスワードがそのまま文字列で
-        // 書かれており、このファイルを開けば誰でも読めてしまう状態でした。
-        // そこで、ID・パスワードを直接書く代わりに「SHA-256ハッシュ値」だけを
-        // 保存し、ログイン時には入力された値をハッシュ化して比較する方式に
-        // 変更しています。
-        //
-        // ⚠️ 注意：これはあくまで「コードを開いても平文が読めない」ようにする
-        // ための工夫であり、完全なセキュリティ対策ではありません。
-        // このアプリはサーバーを持たないブラウザ完結型のため、本当の意味で
-        // 秘密を隠し通すことはできません（開発者ツール等で通信・処理を
-        // 追跡すれば入力値自体は見えてしまいます）。重要な用途では
-        // サーバーサイドでの認証をおすすめします。
-        // ===================================================================
         const SALT = "qzSysSaltV1_do_not_reuse";
         const DEFAULT_ADMIN_ID_HASH = "654eab68663bdebc72e781ad8874ca0e4a2fba3c2c31f6e2850bf3618280f1b3";
         const DEFAULT_ADMIN_AUTH_HASH = "d0400e42cb34886c1be05f064c8487db51e7201d822eda21dd46fb503ad62453";
@@ -585,18 +564,15 @@
         function getAdminAuthHash() {
             return localStorage.getItem('quiz_system_admin_auth_hash') || DEFAULT_ADMIN_AUTH_HASH;
         }
-        // 入力されたIDが「管理者用の予約ID」かどうかを判定（パスワードは見ない）
         async function isAdminId(uid) {
             const h = await sha256(SALT + ':id:' + uid);
             return h === getAdminIdHash();
         }
-        // 入力されたID・パスワードの組が管理者の認証情報と一致するか判定
         async function verifyAdminLogin(uid, pw) {
             const h = await sha256(SALT + ':auth:' + uid + ':' + pw);
             return h === getAdminAuthHash();
         }
 
-        // ログイン画面のパスワード表示切り替え
         function toggleAuthPasswordVisibility(btn) {
             const input = document.getElementById('auth-password');
             if (input.type === 'password') {
@@ -609,15 +585,12 @@
         }
 
         let currentUser = null;
-        let isAdminSession = false;   // ログイン中のユーザーが管理者かどうか
-        let currentSubject = null;    // 現在選択中の教科ID
+        let isAdminSession = false;
+        let currentSubject = null;
         let currentMode = 1;
         let activeQuestions = [];
         let currentIndex = 0;
 
-        // ===================================================================
-        // 教科まわりのヘルパー関数
-        // ===================================================================
         function getSubjectList() {
             return Object.values(window.QUIZ_SUBJECTS || {}).sort((a, b) => (a.order || 0) - (b.order || 0));
         }
@@ -630,7 +603,6 @@
             return subj ? subj.questions : [];
         }
 
-        // オリジナルカスタムモーダル用関数
         function showCustomAlert(message, title = "通知") {
             return new Promise((resolve) => {
                 const modal = document.getElementById('custom-modal');
@@ -687,11 +659,6 @@
             });
         }
 
-        // ===================================================================
-        // ユーザーデータ管理 (LocalStorage)
-        // 各ユーザーの★（わからない問題）は教科ごとに分けて保存する：
-        //   users[uid].starred = { 教科ID: [問題index, ...], ... }
-        // ===================================================================
         function getUsersData() {
             const data = localStorage.getItem('quiz_system_users');
             return data ? JSON.parse(data) : {};
@@ -701,8 +668,6 @@
             localStorage.setItem('quiz_system_users', JSON.stringify(data));
         }
 
-        // 旧バージョン（教科分けされていない・★が配列のまま）のデータを
-        // 新しい形式（教科ごとのオブジェクト）に自動で移行する
         function migrateUsersDataIfNeeded() {
             let users = getUsersData();
             let changed = false;
@@ -737,14 +702,11 @@
             saveUsersData(users);
         }
 
-        // 管理者の★データも同様に教科ごとに分けて保存する：
-        //   { 教科ID: [問題index, ...], ... }
         function getAdminStarsRaw() {
             const saved = localStorage.getItem('quiz_system_admin_stars');
             if (!saved) return {};
             let parsed = JSON.parse(saved);
             if (Array.isArray(parsed)) {
-                // 旧形式からの移行
                 parsed = { joho_shori: parsed };
                 localStorage.setItem('quiz_system_admin_stars', JSON.stringify(parsed));
             }
@@ -760,19 +722,16 @@
             localStorage.setItem('quiz_system_admin_stars', JSON.stringify(data));
         }
 
-        // 新規登録処理
         async function handleRegister() {
             const uid = document.getElementById('auth-userid').value.trim();
             const pw = document.getElementById('auth-password').value.trim();
 
             if (!uid || !pw) { await showCustomAlert("ユーザーIDとパスワードを入力してください。", "入力エラー"); return; }
 
-            // 🛑 管理者用IDで新規登録しようとした場合のエラー
             if (await isAdminId(uid)) { await showCustomAlert("そのIDは予約されています。", "登録エラー"); return; }
 
             let users = getUsersData();
 
-            // 🛑 すでに存在する一般ユーザーIDで新規登録しようとした場合のエラー
             if (users[uid]) { await showCustomAlert("このユーザーIDは既に存在します。", "登録エラー"); return; }
 
             users[uid] = { password: pw, starred: {} };
@@ -780,14 +739,12 @@
             await showCustomAlert("アカウントを作成しました！ログインしてください。", "登録完了");
         }
 
-        // ログイン処理
         async function handleLogin() {
             const uid = document.getElementById('auth-userid').value.trim();
             const pw = document.getElementById('auth-password').value.trim();
 
             if (!uid || !pw) { await showCustomAlert("ユーザーIDとパスワードを入力してください。", "入力エラー"); return; }
 
-            // 管理者用の予約IDかどうかをまず判定
             if (await isAdminId(uid)) {
                 if (await verifyAdminLogin(uid, pw)) {
                     currentUser = uid;
@@ -842,7 +799,6 @@
             }
         }
 
-        // 星（★）のリセット処理（自分自身・現在選択中の教科のみ）
         async function resetMyStars() {
             const subjectName = getSubjectName(currentSubject);
             const confirmed = await showCustomConfirm(`あなたが「${subjectName}」で登録した★（わからない問題）のマークをすべて解除してリセットします。他の教科の★には影響しません。よろしいですか？`, "★のリセット");
@@ -857,9 +813,6 @@
             }
         }
 
-        // ===================================================================
-        // 教科選択画面
-        // ===================================================================
         function showSubjectScreen() {
             document.querySelectorAll('.window').forEach(el => el.style.display = 'none');
             document.getElementById('subject-screen').style.display = 'block';
@@ -900,7 +853,6 @@
             showMainMenu();
         }
 
-        // メニュー表示ロジック
         function showMainMenu() {
             document.querySelectorAll('.window').forEach(el => el.style.display = 'none');
             document.getElementById('menu-screen').style.display = 'block';
@@ -1120,16 +1072,12 @@
             }
         }
 
-        // ===================================================================
-        // 管理者専用画面ロジック
-        // ===================================================================
         function showAdminScreen() {
             if (!isAdminSession) return;
             document.querySelectorAll('.window').forEach(el => el.style.display = 'none');
             document.getElementById('admin-screen').style.display = 'block';
             document.getElementById('admin-subject-name').innerText = getSubjectName(currentSubject);
 
-            // 入力欄をクリア
             document.getElementById('admin-new-id').value = '';
             document.getElementById('admin-new-password').value = '';
 
@@ -1176,7 +1124,6 @@
             }
         }
 
-        // 🌟 特定のユーザー1人だけの★データをリセット（現在選択中の教科のみ）
         async function adminResetUserStars(uid) {
             if (!isAdminSession) return;
 
@@ -1189,14 +1136,12 @@
             }
         }
 
-        // 🌟 現在選択中の教科について、すべてのユーザーの★を一括リセット（管理者用）
         async function adminResetAllUsersStars() {
             if (!isAdminSession) return;
 
             const subjectName = getSubjectName(currentSubject);
             const confirmed = await showCustomConfirm(`【警告】現在の教科「${subjectName}」について、自分を含むすべてのユーザーの★データを完全にリセットします。他の教科の★には影響しません。本当によろしいですか？`, "全ユーザーの★一括リセット");
             if (confirmed) {
-                // 一般ユーザーのリセット（現在の教科のみ）
                 let users = getUsersData();
                 Object.keys(users).forEach(uid => {
                     if (!users[uid].starred || typeof users[uid].starred !== 'object' || Array.isArray(users[uid].starred)) {
@@ -1206,7 +1151,6 @@
                 });
                 saveUsersData(users);
 
-                // 管理者自身の星のリセット（現在の教科のみ）
                 saveAdminStars(currentSubject, []);
 
                 await showCustomAlert(`すべてのユーザー（管理者含む）の★データ（${subjectName}）をリセットしました。`, "一括リセット完了");
@@ -1214,7 +1158,6 @@
             }
         }
 
-        // 🌟 管理者ID・パスワード変更ロジック
         async function changeAdminCredentials() {
             if (!isAdminSession) return;
 
@@ -1226,7 +1169,6 @@
                 return;
             }
 
-            // 一般ユーザーに既に存在するIDは使えないようにする
             let users = getUsersData();
             if (users[newId]) {
                 await showCustomAlert("そのIDは既に一般ユーザーのIDとして使用されています。", "変更エラー");
@@ -1244,7 +1186,6 @@
             }
         }
 
-        // 起動時に旧形式データがあれば新しい形式へ自動移行しておく
         migrateUsersDataIfNeeded();
     </script>
 </body>
