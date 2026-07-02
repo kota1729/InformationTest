@@ -284,6 +284,70 @@
             opacity: 0.5;
         }
 
+        .memo-box {
+            margin-top: 14px;
+            margin-bottom: 14px;
+            background-color: #fffef8;
+            border: 1px solid #dde3da;
+            border-radius: 8px;
+            padding: 16px 14px 10px;
+            position: relative;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+        }
+        .memo-box::before {
+            content: '';
+            position: absolute;
+            top: -8px;
+            left: 20px;
+            width: 46px;
+            height: 16px;
+            background: rgba(241, 196, 15, 0.55);
+            border: 1px solid rgba(241, 196, 15, 0.65);
+            transform: rotate(-3deg);
+            border-radius: 2px;
+        }
+        .memo-header {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-bottom: 6px;
+        }
+        .memo-header-icon {
+            font-size: 13px;
+        }
+        .memo-header-text {
+            font-size: 11px;
+            font-weight: bold;
+            color: #7a9284;
+            letter-spacing: 1.5px;
+        }
+        .memo-status {
+            margin-left: auto;
+            font-size: 10px;
+            color: #c3c9c0;
+            transition: color 0.3s;
+            white-space: nowrap;
+        }
+        .memo-status.saved {
+            color: #7a9284;
+        }
+        .memo-textarea {
+            width: 100%;
+            min-height: 56px;
+            border: none;
+            background: transparent;
+            resize: vertical;
+            font-size: 13px;
+            line-height: 1.7;
+            color: #4a4a4a;
+            outline: none;
+            font-family: inherit;
+            display: block;
+        }
+        .memo-textarea::placeholder {
+            color: #c3c9c0;
+        }
+
         #list-container {
             max-height: 60vh;
             overflow-y: auto;
@@ -418,6 +482,7 @@
         </div>
         <p style="font-size: 11px; color: #95a5a6; text-align: center;">※データはクラウド（Firebase）に保存されます。</p>
         <p style="text-align:center; margin-top:12px;">
+            <a href="#" onclick="forceInitAdmin(); return false;" style="font-size:11px; color:#b0b7bd; text-decoration:underline;">管理者IDを忘れた場合はこちら（初期化）</a>
         </p>
     </div>
 
@@ -487,6 +552,15 @@
                 <div class="a-text" id="quiz-answer">正解データ</div>
                 <div class="fusen">タップして付箋をめくる<br><span style="font-size:10px; font-weight:normal; opacity:0.8;">(もう一度タップで戻せます)</span></div>
             </div>
+        </div>
+
+        <div class="memo-box">
+            <div class="memo-header">
+                <span class="memo-header-icon">✎</span>
+                <span class="memo-header-text">メモ</span>
+                <span class="memo-status" id="quiz-memo-status"></span>
+            </div>
+            <textarea class="memo-textarea" id="quiz-memo" placeholder="気づいたこと・覚え方のコツなどを書いておこう" oninput="onQuizMemoInput()" onblur="saveQuizMemoNow()"></textarea>
         </div>
 
         <div class="control-btns">
@@ -637,6 +711,27 @@
             return h === hash;
         }
 
+        // 現在の管理者ID・パスワードが分からない場合の復旧用（強制初期化）。
+        // 現在の認証情報を確認せずに上書きするため、セキュリティ上のリスクがある。
+        // 新しい管理者情報を設定できたら、ログイン画面の呼び出しリンクごと削除・無効化することを推奨。
+        async function forceInitAdmin() {
+            const newId = prompt("新しい管理者ID（ログイン用）を入力してください。");
+            if (!newId || !newId.trim()) return;
+            const newPw = prompt("新しい管理者パスワードを入力してください。");
+            if (!newPw || !newPw.trim()) return;
+
+            const confirmed = await showCustomConfirm(
+                `管理者アカウントを ID「${newId.trim()}」・新しいパスワードで強制的に初期化します。\n現在設定されている管理者ID・パスワードは上書きされます。\nよろしいですか？`,
+                "管理者アカウントの強制初期化"
+            );
+            if (!confirmed) return;
+
+            const newIdHash = await sha256(SALT + ':id:' + newId.trim());
+            const newAuthHash = await sha256(SALT + ':auth:' + newId.trim() + ':' + newPw.trim());
+            await db.collection('system').doc('admin').set({ idHash: newIdHash, authHash: newAuthHash }, { merge: true });
+            await showCustomAlert(`管理者アカウントを ID「${newId.trim()}」で初期化しました。このIDとパスワードでログインしてください。`, "初期化完了");
+        }
+
         function toggleAdminPassword(btn) {
 
             const input =
@@ -776,6 +871,52 @@
             await db.collection('system').doc('admin').set({ stars: { [subjectId]: starsArray } }, { merge: true });
         }
 
+        // --- メモ機能 ---
+        async function getUserMemos(uid, subjectId) {
+            const doc = await db.collection('users').doc(uid).get();
+            if (!doc.exists) return {};
+            const data = doc.data();
+            if (!data.memos || typeof data.memos !== 'object') return {};
+            return data.memos[subjectId] || {};
+        }
+        async function setUserMemo(uid, subjectId, idx, text) {
+            const ref = db.collection('users').doc(uid);
+            const doc = await ref.get();
+            if (!doc.exists) return;
+            await ref.set({ memos: { [subjectId]: { [idx]: text } } }, { merge: true });
+        }
+        async function getAdminMemos(subjectId) {
+            const data = await getAdminDoc();
+            return (data.memos && data.memos[subjectId]) || {};
+        }
+        async function saveAdminMemo(subjectId, idx, text) {
+            await db.collection('system').doc('admin').set({ memos: { [subjectId]: { [idx]: text } } }, { merge: true });
+        }
+
+        function escapeHtml(str) {
+            return String(str == null ? '' : str).replace(/[&<>"']/g, c => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+            }[c]));
+        }
+
+        // メモ入力後、少し待ってから自動保存する（連打・連続入力での書き込みすぎを防ぐ）
+        const memoSaveTimers = {};
+        function scheduleMemoSave(key, saveFn, statusElId) {
+            const statusEl = document.getElementById(statusElId);
+            if (statusEl) {
+                statusEl.textContent = '入力中…';
+                statusEl.classList.remove('saved');
+            }
+            if (memoSaveTimers[key]) clearTimeout(memoSaveTimers[key]);
+            memoSaveTimers[key] = setTimeout(async () => {
+                await saveFn();
+                if (statusEl) {
+                    statusEl.textContent = '✓ 保存しました';
+                    statusEl.classList.add('saved');
+                }
+            }, 700);
+        }
+
         // --- Firestoreを使った新規登録 ---
         async function handleRegister() {
             const uid = document.getElementById('auth-userid').value.trim();
@@ -824,6 +965,7 @@
                         currentUser = uid;
                         isAdminSession = true;
                         showSubjectScreen();
+                        await showCustomAlert("管理者アカウントにログインしました。", "管理者ログイン");
                     } else {
                         await showCustomAlert("パスワードが違います。", "ログインエラー");
                     }
@@ -1033,10 +1175,13 @@
             const originalIdx = questions.findIndex(q => q.q === current.q);
 
             let myStars = [];
+            let myMemos = {};
             if (isAdminSession) {
                 myStars = await getAdminStars(currentSubject);
+                myMemos = await getAdminMemos(currentSubject);
             } else {
                 myStars = await getUserStars(currentUser, currentSubject);
+                myMemos = await getUserMemos(currentUser, currentSubject);
             }
 
             if (myStars.includes(originalIdx)) {
@@ -1045,12 +1190,48 @@
                 starBtn.classList.remove('active');
             }
 
+            const memoEl = document.getElementById('quiz-memo');
+            memoEl.value = myMemos[originalIdx] || '';
+            memoEl.dataset.idx = originalIdx;
+            const memoStatusEl = document.getElementById('quiz-memo-status');
+            if (memoStatusEl) {
+                memoStatusEl.textContent = '';
+                memoStatusEl.classList.remove('saved');
+            }
+
             const total = activeQuestions.length;
             document.getElementById('quiz-count').innerText = `第 ${currentIndex + 1} 問 / ${total} 問`;
             document.getElementById('quiz-progress').style.width = `${((currentIndex) / total) * 100}%`;
 
             const prevBtn = document.getElementById('prev-btn');
             prevBtn.disabled = (currentIndex === 0);
+        }
+
+        function onQuizMemoInput() {
+            const memoEl = document.getElementById('quiz-memo');
+            const idx = Number(memoEl.dataset.idx);
+            scheduleMemoSave('quiz', () => saveMemoValue(idx, memoEl.value), 'quiz-memo-status');
+        }
+
+        async function saveQuizMemoNow() {
+            const memoEl = document.getElementById('quiz-memo');
+            const idx = Number(memoEl.dataset.idx);
+            if (memoSaveTimers['quiz']) clearTimeout(memoSaveTimers['quiz']);
+            await saveMemoValue(idx, memoEl.value);
+            const statusEl = document.getElementById('quiz-memo-status');
+            if (statusEl) {
+                statusEl.textContent = '✓ 保存しました';
+                statusEl.classList.add('saved');
+            }
+        }
+
+        async function saveMemoValue(idx, text) {
+            if (isNaN(idx)) return;
+            if (isAdminSession) {
+                await saveAdminMemo(currentSubject, idx, text);
+            } else {
+                await setUserMemo(currentUser, currentSubject, idx, text);
+            }
         }
 
         async function toggleStarCurrent() {
@@ -1108,10 +1289,13 @@
             const questions = getActiveSubjectQuestions();
 
             let myStars = [];
+            let myMemos = {};
             if (isAdminSession) {
                 myStars = await getAdminStars(currentSubject);
+                myMemos = await getAdminMemos(currentSubject);
             } else {
                 myStars = await getUserStars(currentUser, currentSubject);
+                myMemos = await getUserMemos(currentUser, currentSubject);
             }
 
             container.innerHTML = '';
@@ -1121,6 +1305,7 @@
 
                 const isStarred = myStars.includes(idx);
                 const starDisplay = `<button class="star-btn ${isStarred?'active':''}" onclick="toggleStarList(${idx}, this)">★</button>`;
+                const memoText = escapeHtml(myMemos[idx] || '');
 
                 itemDiv.innerHTML = `
                     <div class="card-header">
@@ -1131,9 +1316,34 @@
                         <div class="a-text">${item.a}</div>
                         <div class="fusen">タップして付箋をめくる</div>
                     </div>
+                    <div class="memo-box">
+                        <div class="memo-header">
+                            <span class="memo-header-icon">✎</span>
+                            <span class="memo-header-text">メモ</span>
+                            <span class="memo-status" id="list-memo-status-${idx}"></span>
+                        </div>
+                        <textarea class="memo-textarea" id="list-memo-${idx}" placeholder="気づいたこと・覚え方のコツなどを書いておこう" oninput="onListMemoInput(${idx})" onblur="saveListMemoNow(${idx})">${memoText}</textarea>
+                    </div>
                 `;
                 container.appendChild(itemDiv);
             });
+        }
+
+        function onListMemoInput(idx) {
+            const memoEl = document.getElementById('list-memo-' + idx);
+            scheduleMemoSave('list-' + idx, () => saveMemoValue(idx, memoEl.value), 'list-memo-status-' + idx);
+        }
+
+        async function saveListMemoNow(idx) {
+            const memoEl = document.getElementById('list-memo-' + idx);
+            const key = 'list-' + idx;
+            if (memoSaveTimers[key]) clearTimeout(memoSaveTimers[key]);
+            await saveMemoValue(idx, memoEl.value);
+            const statusEl = document.getElementById('list-memo-status-' + idx);
+            if (statusEl) {
+                statusEl.textContent = '✓ 保存しました';
+                statusEl.classList.add('saved');
+            }
         }
 
         async function toggleStarList(originalIdx, btnEl) {
