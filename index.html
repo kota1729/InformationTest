@@ -387,6 +387,10 @@
             .menu-btn { padding: 14px 12px; font-size: 14px; }
         }
     </style>
+
+    <!-- Firebase SDKの読み込み -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-firestore-compat.js"></script>
 </head>
 <body>
 
@@ -412,7 +416,9 @@
             <button class="btn btn-main" onclick="handleLogin()">ログイン</button>
             <button class="btn btn-sub" onclick="handleRegister()">新規登録</button>
         </div>
-        <p style="font-size: 11px; color: #95a5a6; text-align: center;">※データはブラウザに保存されます。</p>
+        <p style="font-size: 11px; color: #95a5a6; text-align: center;">※データはクラウド（Firebase）に保存されます。</p>
+        <p style="text-align:center; margin-top:12px;">
+        </p>
     </div>
 
     <div class="window" id="subject-screen">
@@ -562,6 +568,35 @@
     <script src="subjects/joho_shori.js"></script>
 
     <script>
+        const firebaseConfig = {
+          apiKey: "AIzaSyCt1XIlg61RTPOWhOq_BU6rl4md7RZwvqk",
+          authDomain: "quiz-system-pro-app.firebaseapp.com",
+          projectId: "quiz-system-pro-app",
+          storageBucket: "quiz-system-pro-app.appspot.com",
+          messagingSenderId: "699736973166",
+          appId: "1:699736973166:web:55c90c30017cc981e9ab7f",
+          measurementId: "G-3S64YEK4ZX"
+        };
+
+        // 2. 二重初期化を防ぐためのチェック
+          if (!firebase.apps.length) {
+            firebase.initializeApp(firebaseConfig);
+          }
+
+        // Firestoreの操作用関数
+        const db = firebase.firestore();
+
+        // ユーザーデータの取得（Firestore版）
+        async function fetchUserData(uid) {
+            const doc = await db.collection('users').doc(uid).get();
+            return doc.exists ? doc.data() : null;
+        }
+
+        // ユーザーデータの保存（Firestore版）
+        async function saveUserData(uid, data) {
+            await db.collection('users').doc(uid).set(data, { merge: true });
+        }
+
         const SALT = "qzSysSaltV1_do_not_reuse";
         const DEFAULT_ADMIN_ID_HASH = "654eab68663bdebc72e781ad8874ca0e4a2fba3c2c31f6e2850bf3618280f1b3";
         const DEFAULT_ADMIN_AUTH_HASH = "d0400e42cb34886c1be05f064c8487db51e7201d822eda21dd46fb503ad62453";
@@ -572,19 +607,34 @@
             return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, '0')).join('');
         }
 
-        function getAdminIdHash() {
-            return localStorage.getItem('quiz_system_admin_id_hash') || DEFAULT_ADMIN_ID_HASH;
+        // 管理者情報は Firestore の system/admin ドキュメントで一元管理する
+        async function getAdminDoc() {
+            const ref = db.collection('system').doc('admin');
+            const doc = await ref.get();
+            if (!doc.exists) {
+                const initData = { idHash: DEFAULT_ADMIN_ID_HASH, authHash: DEFAULT_ADMIN_AUTH_HASH, stars: {} };
+                await ref.set(initData);
+                return initData;
+            }
+            return doc.data();
         }
-        function getAdminAuthHash() {
-            return localStorage.getItem('quiz_system_admin_auth_hash') || DEFAULT_ADMIN_AUTH_HASH;
+        async function getAdminIdHash() {
+            const data = await getAdminDoc();
+            return data.idHash || DEFAULT_ADMIN_ID_HASH;
+        }
+        async function getAdminAuthHash() {
+            const data = await getAdminDoc();
+            return data.authHash || DEFAULT_ADMIN_AUTH_HASH;
         }
         async function isAdminId(uid) {
             const h = await sha256(SALT + ':id:' + uid);
-            return h === getAdminIdHash();
+            const hash = await getAdminIdHash();
+            return h === hash;
         }
         async function verifyAdminLogin(uid, pw) {
             const h = await sha256(SALT + ':auth:' + uid + ':' + pw);
-            return h === getAdminAuthHash();
+            const hash = await getAdminAuthHash();
+            return h === hash;
         }
 
         function toggleAdminPassword(btn) {
@@ -691,117 +741,114 @@
             });
         }
 
-        function getUsersData() {
-            const data = localStorage.getItem('quiz_system_users');
-            return data ? JSON.parse(data) : {};
+        // ユーザー一覧を Firestore の users コレクションから取得
+        async function getUsersData() {
+            const snapshot = await db.collection('users').get();
+            const users = {};
+            snapshot.forEach(doc => { users[doc.id] = doc.data(); });
+            return users;
         }
 
-        function saveUsersData(data) {
-            localStorage.setItem('quiz_system_users', JSON.stringify(data));
-        }
-
-        function migrateUsersDataIfNeeded() {
-            let users = getUsersData();
-            let changed = false;
-            Object.keys(users).forEach(uid => {
-                const u = users[uid];
-                if (Array.isArray(u.starred)) {
-                    u.starred = { joho_shori: u.starred };
-                    changed = true;
-                } else if (!u.starred || typeof u.starred !== 'object') {
-                    u.starred = {};
-                    changed = true;
-                }
-            });
-            if (changed) saveUsersData(users);
-        }
-
-        function getUserStars(uid, subjectId) {
-            const users = getUsersData();
-            if (!users[uid] || !users[uid].starred || typeof users[uid].starred !== 'object' || Array.isArray(users[uid].starred)) {
+        async function getUserStars(uid, subjectId) {
+            const doc = await db.collection('users').doc(uid).get();
+            if (!doc.exists) return [];
+            const data = doc.data();
+            if (!data.starred || typeof data.starred !== 'object' || Array.isArray(data.starred)) {
                 return [];
             }
-            return users[uid].starred[subjectId] || [];
+            return data.starred[subjectId] || [];
         }
 
-        function setUserStars(uid, subjectId, starsArray) {
-            let users = getUsersData();
-            if (!users[uid]) return;
-            if (!users[uid].starred || typeof users[uid].starred !== 'object' || Array.isArray(users[uid].starred)) {
-                users[uid].starred = {};
-            }
-            users[uid].starred[subjectId] = starsArray;
-            saveUsersData(users);
+        async function setUserStars(uid, subjectId, starsArray) {
+            const ref = db.collection('users').doc(uid);
+            const doc = await ref.get();
+            if (!doc.exists) return;
+            // set(..., {merge:true}) はネストしたオブジェクトも再帰的にマージされるため、
+            // 他教科の★データを消さずに指定教科分だけ更新できる
+            await ref.set({ starred: { [subjectId]: starsArray } }, { merge: true });
         }
 
-        function getAdminStarsRaw() {
-            const saved = localStorage.getItem('quiz_system_admin_stars');
-            if (!saved) return {};
-            let parsed = JSON.parse(saved);
-            if (Array.isArray(parsed)) {
-                parsed = { joho_shori: parsed };
-                localStorage.setItem('quiz_system_admin_stars', JSON.stringify(parsed));
-            }
-            return parsed;
+        async function getAdminStars(subjectId) {
+            const data = await getAdminDoc();
+            return (data.stars && data.stars[subjectId]) || [];
         }
-        function getAdminStars(subjectId) {
-            const data = getAdminStarsRaw();
-            return data[subjectId] || [];
-        }
-        function saveAdminStars(subjectId, starsArray) {
-            const data = getAdminStarsRaw();
-            data[subjectId] = starsArray;
-            localStorage.setItem('quiz_system_admin_stars', JSON.stringify(data));
+        async function saveAdminStars(subjectId, starsArray) {
+            await db.collection('system').doc('admin').set({ stars: { [subjectId]: starsArray } }, { merge: true });
         }
 
+        // --- Firestoreを使った新規登録 ---
         async function handleRegister() {
             const uid = document.getElementById('auth-userid').value.trim();
             const pw = document.getElementById('auth-password').value.trim();
-
+        
             if (!uid || !pw) { await showCustomAlert("ユーザーIDとパスワードを入力してください。", "入力エラー"); return; }
+        
+            try {
+                // 管理者IDと同じIDでの一般登録は防止する
+                if (await isAdminId(uid)) {
+                    await showCustomAlert("このIDは使用できません。別のIDをお試しください。", "登録エラー");
+                    return;
+                }
 
-            if (await isAdminId(uid)) { await showCustomAlert("そのIDは予約されています。", "登録エラー"); return; }
-
-            let users = getUsersData();
-
-            if (users[uid]) { await showCustomAlert("このユーザーIDは既に存在します。", "登録エラー"); return; }
-
-            users[uid] = { password: pw, starred: {} };
-            saveUsersData(users);
-            await showCustomAlert("アカウントを作成しました！ログインしてください。", "登録完了");
+                const userRef = db.collection('users').doc(uid);
+                const doc = await userRef.get();
+            
+                if (doc.exists) {
+                    await showCustomAlert("このユーザーIDは既に存在します。", "登録エラー");
+                    return;
+                }
+            
+                // Firestoreに保存
+                await userRef.set({
+                    password: pw,
+                    starred: {} // 最初は空の★データ
+                });
+                await showCustomAlert("アカウントを作成しました！ログインしてください。", "登録完了");
+            } catch (error) {
+                console.error(error);
+                await showCustomAlert("登録に失敗しました。インターネット接続を確認してください。", "エラー");
+            }
         }
-
+        
+        // --- Firestoreを使ったログイン ---
         async function handleLogin() {
             const uid = document.getElementById('auth-userid').value.trim();
             const pw = document.getElementById('auth-password').value.trim();
-
+        
             if (!uid || !pw) { await showCustomAlert("ユーザーIDとパスワードを入力してください。", "入力エラー"); return; }
+        
+            try {
+                // 管理者IDかどうかを先に判定し、管理者ならハッシュ照合でログインさせる
+                if (await isAdminId(uid)) {
+                    if (await verifyAdminLogin(uid, pw)) {
+                        currentUser = uid;
+                        isAdminSession = true;
+                        showSubjectScreen();
+                    } else {
+                        await showCustomAlert("パスワードが違います。", "ログインエラー");
+                    }
+                    return;
+                }
 
-            if (await isAdminId(uid)) {
-                if (await verifyAdminLogin(uid, pw)) {
+                const userRef = db.collection('users').doc(uid);
+                const doc = await userRef.get();
+            
+                if (!doc.exists) {
+                    await showCustomAlert("このアカウントは存在しません。", "ログインエラー");
+                    return;
+                }
+            
+                const userData = doc.data();
+                if (userData.password === pw) {
                     currentUser = uid;
-                    isAdminSession = true;
-                    await showCustomAlert("管理者としてログインしました。", "管理者ログイン");
+                    isAdminSession = false;
                     showSubjectScreen();
                 } else {
                     await showCustomAlert("パスワードが違います。", "ログインエラー");
                 }
-                return;
-            }
-
-            let users = getUsersData();
-
-            if (!users[uid]) {
-                await showCustomAlert("このアカウントは存在しません。", "ログインエラー");
-                return;
-            }
-
-            if (users[uid].password === pw) {
-                currentUser = uid;
-                isAdminSession = false;
-                showSubjectScreen();
-            } else {
-                await showCustomAlert("パスワードが違います。", "ログインエラー");
+            } catch (error) {
+                console.error(error);
+                await showCustomAlert("ログイン処理でエラーが発生しました。", "エラー");
             }
         }
 
@@ -823,9 +870,7 @@
 
             const confirmed = await showCustomConfirm("本当にあなたのアカウントと★データ（すべての教科分）を完全に削除しますか？\nこの操作は取り消せません。", "アカウント削除");
             if (confirmed) {
-                let users = getUsersData();
-                delete users[currentUser];
-                saveUsersData(users);
+                await db.collection('users').doc(currentUser).delete();
                 await showCustomAlert("アカウントを削除しました。", "削除完了");
                 handleLogout();
             }
@@ -836,12 +881,12 @@
             const confirmed = await showCustomConfirm(`あなたが「${subjectName}」で登録した★（わからない問題）のマークをすべて解除してリセットします。他の教科の★には影響しません。よろしいですか？`, "★のリセット");
             if (confirmed) {
                 if (isAdminSession) {
-                    saveAdminStars(currentSubject, []);
+                    await saveAdminStars(currentSubject, []);
                 } else {
-                    setUserStars(currentUser, currentSubject, []);
+                    await setUserStars(currentUser, currentSubject, []);
                 }
                 await showCustomAlert("この教科の★データをリセットしました。", "リセット完了");
-                showMainMenu();
+                await showMainMenu();
             }
         }
 
@@ -880,12 +925,12 @@
             });
         }
 
-        function selectSubject(subjectId) {
+        async function selectSubject(subjectId) {
             currentSubject = subjectId;
-            showMainMenu();
+            await showMainMenu();
         }
 
-        function showMainMenu() {
+        async function showMainMenu() {
             document.querySelectorAll('.window').forEach(el => el.style.display = 'none');
             document.getElementById('menu-screen').style.display = 'block';
             document.getElementById('display-username').innerText = currentUser;
@@ -905,17 +950,17 @@
             const starModeBtn = document.getElementById('menu-star-btn');
             let starCount = 0;
             if (isAdminSession) {
-                starCount = getAdminStars(currentSubject).length;
+                starCount = (await getAdminStars(currentSubject)).length;
             } else {
-                starCount = getUserStars(currentUser, currentSubject).length;
+                starCount = (await getUserStars(currentUser, currentSubject)).length;
             }
 
             starModeBtn.innerText = `★ 限定モード (現在 ${starCount} 問)`;
             starModeBtn.disabled = starCount === 0;
         }
 
-        function toMainMenu() {
-            showMainMenu();
+        async function toMainMenu() {
+            await showMainMenu();
         }
 
         function shuffle(array) {
@@ -930,7 +975,7 @@
             return arr;
         }
         
-        function startMode(modeNum) {
+        async function startMode(modeNum) {
             currentMode = modeNum;
             currentIndex = 0;
 
@@ -941,35 +986,35 @@
 
             let myStars = [];
             if (isAdminSession) {
-                myStars = getAdminStars(currentSubject);
+                myStars = await getAdminStars(currentSubject);
             } else {
-                myStars = getUserStars(currentUser, currentSubject);
+                myStars = await getUserStars(currentUser, currentSubject);
             }
 
             if (modeNum === 1) {
                 activeQuestions = [...questions];
                 document.getElementById('quiz-title').innerText = `${subjectName} - 1問ずつ挑戦（標準順）`;
-                setupQuizScreen();
+                await setupQuizScreen();
             } else if (modeNum === 2) {
                 document.getElementById('list-title').innerText = `${subjectName} - 全問一気見リスト`;
-                setupListScreen();
+                await setupListScreen();
             } else if (modeNum === 3) {
                 activeQuestions = shuffle(questions);
                 document.getElementById('quiz-title').innerText = `${subjectName} - ランダム実力テスト`;
-                setupQuizScreen();
+                await setupQuizScreen();
             } else if (modeNum === 4) {
                 activeQuestions = questions.filter((_, idx) => myStars.includes(idx));
                 document.getElementById('quiz-title').innerText = `${subjectName} - ★ わからない問題 復習テスト`;
-                setupQuizScreen();
+                await setupQuizScreen();
             }
         }
 
-        function setupQuizScreen() {
+        async function setupQuizScreen() {
             document.getElementById('quiz-screen').style.display = 'block';
-            showQuestion();
+            await showQuestion();
         }
 
-        function showQuestion() {
+        async function showQuestion() {
             if (currentIndex >= activeQuestions.length) {
                 document.querySelectorAll('.window').forEach(el => el.style.display = 'none');
                 document.getElementById('result-screen').style.display = 'block';
@@ -989,9 +1034,9 @@
 
             let myStars = [];
             if (isAdminSession) {
-                myStars = getAdminStars(currentSubject);
+                myStars = await getAdminStars(currentSubject);
             } else {
-                myStars = getUserStars(currentUser, currentSubject);
+                myStars = await getUserStars(currentUser, currentSubject);
             }
 
             if (myStars.includes(originalIdx)) {
@@ -1008,14 +1053,14 @@
             prevBtn.disabled = (currentIndex === 0);
         }
 
-        function toggleStarCurrent() {
+        async function toggleStarCurrent() {
             const current = activeQuestions[currentIndex];
             const questions = getActiveSubjectQuestions();
             const originalIdx = questions.findIndex(q => q.q === current.q);
             const starBtn = document.getElementById('quiz-star');
 
             if (isAdminSession) {
-                let myStars = getAdminStars(currentSubject);
+                let myStars = await getAdminStars(currentSubject);
                 const foundIdx = myStars.indexOf(originalIdx);
                 if (foundIdx > -1) {
                     myStars.splice(foundIdx, 1);
@@ -1024,9 +1069,9 @@
                     myStars.push(originalIdx);
                     starBtn.classList.add('active');
                 }
-                saveAdminStars(currentSubject, myStars);
+                await saveAdminStars(currentSubject, myStars);
             } else {
-                let myStars = getUserStars(currentUser, currentSubject);
+                let myStars = await getUserStars(currentUser, currentSubject);
                 const foundIdx = myStars.indexOf(originalIdx);
                 if (foundIdx > -1) {
                     myStars.splice(foundIdx, 1);
@@ -1035,7 +1080,7 @@
                     myStars.push(originalIdx);
                     starBtn.classList.add('active');
                 }
-                setUserStars(currentUser, currentSubject, myStars);
+                await setUserStars(currentUser, currentSubject, myStars);
             }
         }
 
@@ -1043,32 +1088,33 @@
             containerEl.classList.toggle('revealed');
         }
 
-        function nextQuestion() {
+        async function nextQuestion() {
             currentIndex++;
-            showQuestion();
+            await showQuestion();
         }
 
-        function prevQuestion() {
+        async function prevQuestion() {
             if (currentIndex > 0) {
                 currentIndex--;
-                showQuestion();
+                await showQuestion();
             }
         }
 
-        function setupListScreen() {
+        async function setupListScreen() {
             document.getElementById('list-screen').style.display = 'block';
             const container = document.getElementById('list-container');
-            container.innerHTML = '';
+            container.innerHTML = '<p style="text-align:center; color:#aaa; padding:20px 0;">読み込み中...</p>';
 
             const questions = getActiveSubjectQuestions();
 
             let myStars = [];
             if (isAdminSession) {
-                myStars = getAdminStars(currentSubject);
+                myStars = await getAdminStars(currentSubject);
             } else {
-                myStars = getUserStars(currentUser, currentSubject);
+                myStars = await getUserStars(currentUser, currentSubject);
             }
 
+            container.innerHTML = '';
             questions.forEach((item, idx) => {
                 const itemDiv = document.createElement('div');
                 itemDiv.className = 'qa-card';
@@ -1090,9 +1136,9 @@
             });
         }
 
-        function toggleStarList(originalIdx, btnEl) {
+        async function toggleStarList(originalIdx, btnEl) {
             if (isAdminSession) {
-                let myStars = getAdminStars(currentSubject);
+                let myStars = await getAdminStars(currentSubject);
                 const foundIdx = myStars.indexOf(originalIdx);
                 if (foundIdx > -1) {
                     myStars.splice(foundIdx, 1);
@@ -1101,9 +1147,9 @@
                     myStars.push(originalIdx);
                     btnEl.classList.add('active');
                 }
-                saveAdminStars(currentSubject, myStars);
+                await saveAdminStars(currentSubject, myStars);
             } else {
-                let myStars = getUserStars(currentUser, currentSubject);
+                let myStars = await getUserStars(currentUser, currentSubject);
                 const foundIdx = myStars.indexOf(originalIdx);
                 if (foundIdx > -1) {
                     myStars.splice(foundIdx, 1);
@@ -1112,11 +1158,11 @@
                     myStars.push(originalIdx);
                     btnEl.classList.add('active');
                 }
-                setUserStars(currentUser, currentSubject, myStars);
+                await setUserStars(currentUser, currentSubject, myStars);
             }
         }
 
-        function showAdminScreen() {
+        async function showAdminScreen() {
             if (!isAdminSession) return;
             document.querySelectorAll('.window').forEach(el => el.style.display = 'none');
             document.getElementById('admin-screen').style.display = 'block';
@@ -1126,9 +1172,9 @@
             document.getElementById('admin-new-password').value = '';
 
             const tbody = document.getElementById('admin-user-list');
-            tbody.innerHTML = '';
+            tbody.innerHTML = `<tr><td colspan="4" style="text-align:center; color:#aaa;">読み込み中...</td></tr>`;
 
-            let users = getUsersData();
+            let users = await getUsersData();
             const keys = Object.keys(users);
 
             if (keys.length === 0) {
@@ -1136,8 +1182,11 @@
                 return;
             }
 
+            tbody.innerHTML = '';
             keys.forEach(uid => {
-                const starCount = getUserStars(uid, currentSubject).length;
+                const starred = users[uid].starred;
+                const starArr = (starred && typeof starred === 'object' && !Array.isArray(starred)) ? (starred[currentSubject] || []) : [];
+                const starCount = starArr.length;
                 const tr = document.createElement('tr');
                 tr.innerHTML = `
                     <td><strong>${uid}</strong></td>
@@ -1161,10 +1210,8 @@
 
             const confirmed = await showCustomConfirm(`管理者権限で ユーザー「${uid}」のデータ（すべての教科分）を完全に削除しますか？`, "ユーザー強制削除");
             if (confirmed) {
-                let users = getUsersData();
-                delete users[uid];
-                saveUsersData(users);
-                showAdminScreen();
+                await db.collection('users').doc(uid).delete();
+                await showAdminScreen();
             }
         }
 
@@ -1174,9 +1221,9 @@
             const subjectName = getSubjectName(currentSubject);
             const confirmed = await showCustomConfirm(`ユーザー「${uid}」の教科「${subjectName}」の★データだけをリセットします。他の教科・他のユーザーには影響しません。よろしいですか？`, "ユーザー別★リセット");
             if (confirmed) {
-                setUserStars(uid, currentSubject, []);
+                await setUserStars(uid, currentSubject, []);
                 await showCustomAlert(`ユーザー「${uid}」の★データ（${subjectName}）をリセットしました。`, "リセット完了");
-                showAdminScreen();
+                await showAdminScreen();
             }
         }
 
@@ -1186,19 +1233,18 @@
             const subjectName = getSubjectName(currentSubject);
             const confirmed = await showCustomConfirm(`【警告】現在の教科「${subjectName}」について、自分を含むすべてのユーザーの★データを完全にリセットします。他の教科の★には影響しません。本当によろしいですか？`, "全ユーザーの★一括リセット");
             if (confirmed) {
-                let users = getUsersData();
+                const users = await getUsersData();
+                const batch = db.batch();
                 Object.keys(users).forEach(uid => {
-                    if (!users[uid].starred || typeof users[uid].starred !== 'object' || Array.isArray(users[uid].starred)) {
-                        users[uid].starred = {};
-                    }
-                    users[uid].starred[currentSubject] = [];
+                    const ref = db.collection('users').doc(uid);
+                    batch.set(ref, { starred: { [currentSubject]: [] } }, { merge: true });
                 });
-                saveUsersData(users);
+                await batch.commit();
 
-                saveAdminStars(currentSubject, []);
+                await saveAdminStars(currentSubject, []);
 
                 await showCustomAlert(`すべてのユーザー（管理者含む）の★データ（${subjectName}）をリセットしました。`, "一括リセット完了");
-                showAdminScreen();
+                await showAdminScreen();
             }
         }
 
@@ -1213,7 +1259,7 @@
                 return;
             }
 
-            let users = getUsersData();
+            let users = await getUsersData();
             if (users[newId]) {
                 await showCustomAlert("そのIDは既に一般ユーザーのIDとして使用されています。", "変更エラー");
                 return;
@@ -1223,14 +1269,14 @@
             if (confirmed) {
                 const newIdHash = await sha256(SALT + ':id:' + newId);
                 const newAuthHash = await sha256(SALT + ':auth:' + newId + ':' + newPw);
-                localStorage.setItem('quiz_system_admin_id_hash', newIdHash);
-                localStorage.setItem('quiz_system_admin_auth_hash', newAuthHash);
+                await db.collection('system').doc('admin').set({ idHash: newIdHash, authHash: newAuthHash }, { merge: true });
                 await showCustomAlert("管理者の認証情報を更新しました。再度ログインしてください。", "変更完了");
                 handleLogout();
             }
         }
 
-        migrateUsersDataIfNeeded();
+        // 起動時に管理者ドキュメント（system/admin）が無ければ作成しておく
+        getAdminDoc();
     </script>
 </body>
 </html>
