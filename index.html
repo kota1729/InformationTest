@@ -482,7 +482,6 @@
         </div>
         <p style="font-size: 11px; color: #95a5a6; text-align: center;">※データはクラウド（Firebase）に保存されます。</p>
         <p style="text-align:center; margin-top:12px;">
-            <a href="#" onclick="forceInitAdmin(); return false;" style="font-size:11px; color:#b0b7bd; text-decoration:underline;">管理者IDを忘れた場合はこちら（初期化）</a>
         </p>
     </div>
 
@@ -709,27 +708,6 @@
             const h = await sha256(SALT + ':auth:' + uid + ':' + pw);
             const hash = await getAdminAuthHash();
             return h === hash;
-        }
-
-        // 現在の管理者ID・パスワードが分からない場合の復旧用（強制初期化）。
-        // 現在の認証情報を確認せずに上書きするため、セキュリティ上のリスクがある。
-        // 新しい管理者情報を設定できたら、ログイン画面の呼び出しリンクごと削除・無効化することを推奨。
-        async function forceInitAdmin() {
-            const newId = prompt("新しい管理者ID（ログイン用）を入力してください。");
-            if (!newId || !newId.trim()) return;
-            const newPw = prompt("新しい管理者パスワードを入力してください。");
-            if (!newPw || !newPw.trim()) return;
-
-            const confirmed = await showCustomConfirm(
-                `管理者アカウントを ID「${newId.trim()}」・新しいパスワードで強制的に初期化します。\n現在設定されている管理者ID・パスワードは上書きされます。\nよろしいですか？`,
-                "管理者アカウントの強制初期化"
-            );
-            if (!confirmed) return;
-
-            const newIdHash = await sha256(SALT + ':id:' + newId.trim());
-            const newAuthHash = await sha256(SALT + ':auth:' + newId.trim() + ':' + newPw.trim());
-            await db.collection('system').doc('admin').set({ idHash: newIdHash, authHash: newAuthHash }, { merge: true });
-            await showCustomAlert(`管理者アカウントを ID「${newId.trim()}」で初期化しました。このIDとパスワードでログインしてください。`, "初期化完了");
         }
 
         function toggleAdminPassword(btn) {
