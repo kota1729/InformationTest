@@ -452,9 +452,6 @@
         }
     </style>
 
-    <!-- Firebase SDKの読み込み -->
-    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-firestore-compat.js"></script>
 </head>
 <body>
 
@@ -635,7 +632,18 @@
         </div>
     </div>
 
+    <script src="subjects/genkoku.js"></script>
+    <script src="subjects/su-ichi.js"></script>
+    <script src="subjects/eigo.js"></script>
+    <script src="subjects/koukyou.js"></script>
+    <script src="subjects/kazin.js"></script>
     <script src="subjects/joho_shori.js"></script>
+    <script src="subjects/boki.js"></script>
+    <script src="subjects/bizinesu_kiso.js"></script>
+    <script src="subjects/hoken.js"></script>
+
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-firestore-compat.js"></script>
 
     <script>
         const firebaseConfig = {
@@ -648,21 +656,17 @@
           measurementId: "G-3S64YEK4ZX"
         };
 
-        // 2. 二重初期化を防ぐためのチェック
           if (!firebase.apps.length) {
             firebase.initializeApp(firebaseConfig);
           }
 
-        // Firestoreの操作用関数
         const db = firebase.firestore();
 
-        // ユーザーデータの取得（Firestore版）
         async function fetchUserData(uid) {
             const doc = await db.collection('users').doc(uid).get();
             return doc.exists ? doc.data() : null;
         }
 
-        // ユーザーデータの保存（Firestore版）
         async function saveUserData(uid, data) {
             await db.collection('users').doc(uid).set(data, { merge: true });
         }
@@ -677,7 +681,6 @@
             return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, '0')).join('');
         }
 
-        // 管理者情報は Firestore の system/admin ドキュメントで一元管理する
         async function getAdminDoc() {
             const ref = db.collection('system').doc('admin');
             const doc = await ref.get();
@@ -811,7 +814,6 @@
             });
         }
 
-        // ユーザー一覧を Firestore の users コレクションから取得
         async function getUsersData() {
             const snapshot = await db.collection('users').get();
             const users = {};
@@ -833,8 +835,6 @@
             const ref = db.collection('users').doc(uid);
             const doc = await ref.get();
             if (!doc.exists) return;
-            // set(..., {merge:true}) はネストしたオブジェクトも再帰的にマージされるため、
-            // 他教科の★データを消さずに指定教科分だけ更新できる
             await ref.set({ starred: { [subjectId]: starsArray } }, { merge: true });
         }
 
@@ -892,7 +892,6 @@
             }, 700);
         }
 
-        // --- Firestoreを使った新規登録 ---
         async function handleRegister() {
             const uid = document.getElementById('auth-userid').value.trim();
             const pw = document.getElementById('auth-password').value.trim();
@@ -900,7 +899,6 @@
             if (!uid || !pw) { await showCustomAlert("ユーザーIDとパスワードを入力してください。", "入力エラー"); return; }
         
             try {
-                // 管理者IDと同じIDでの一般登録は防止する
                 if (await isAdminId(uid)) {
                     await showCustomAlert("このIDは使用できません。別のIDをお試しください。", "登録エラー");
                     return;
@@ -917,7 +915,7 @@
                 // Firestoreに保存
                 await userRef.set({
                     password: pw,
-                    starred: {} // 最初は空の★データ
+                    starred: {}
                 });
                 await showCustomAlert("アカウントを作成しました！ログインしてください。", "登録完了");
             } catch (error) {
@@ -926,7 +924,6 @@
             }
         }
         
-        // --- Firestoreを使ったログイン ---
         async function handleLogin() {
             const uid = document.getElementById('auth-userid').value.trim();
             const pw = document.getElementById('auth-password').value.trim();
@@ -934,7 +931,6 @@
             if (!uid || !pw) { await showCustomAlert("ユーザーIDとパスワードを入力してください。", "入力エラー"); return; }
         
             try {
-                // 管理者IDかどうかを先に判定し、管理者ならハッシュ照合でログインさせる
                 if (await isAdminId(uid)) {
                     if (await verifyAdminLogin(uid, pw)) {
                         currentUser = uid;
@@ -1152,11 +1148,15 @@
             let myStars = [];
             let myMemos = {};
             if (isAdminSession) {
-                myStars = await getAdminStars(currentSubject);
-                myMemos = await getAdminMemos(currentSubject);
+                [myStars, myMemos] = await Promise.all([
+                    getAdminStars(currentSubject),
+                    getAdminMemos(currentSubject)
+                ]);
             } else {
-                myStars = await getUserStars(currentUser, currentSubject);
-                myMemos = await getUserMemos(currentUser, currentSubject);
+                [myStars, myMemos] = await Promise.all([
+                    getUserStars(currentUser, currentSubject),
+                    getUserMemos(currentUser, currentSubject)
+                ]);
             }
 
             if (myStars.includes(originalIdx)) {
@@ -1266,11 +1266,15 @@
             let myStars = [];
             let myMemos = {};
             if (isAdminSession) {
-                myStars = await getAdminStars(currentSubject);
-                myMemos = await getAdminMemos(currentSubject);
+                [myStars, myMemos] = await Promise.all([
+                    getAdminStars(currentSubject),
+                    getAdminMemos(currentSubject)
+                ]);
             } else {
-                myStars = await getUserStars(currentUser, currentSubject);
-                myMemos = await getUserMemos(currentUser, currentSubject);
+                [myStars, myMemos] = await Promise.all([
+                    getUserStars(currentUser, currentSubject),
+                    getUserMemos(currentUser, currentSubject)
+                ]);
             }
 
             container.innerHTML = '';
@@ -1460,7 +1464,6 @@
             }
         }
 
-        // 起動時に管理者ドキュメント（system/admin）が無ければ作成しておく
         getAdminDoc();
     </script>
 </body>
