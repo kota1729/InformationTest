@@ -1,7 +1,7 @@
 (function () {
     const SUBJECT_ID = "joho_shori";
     const SUBJECT_NAME = "情報処理";
-    const SUBJECT_ORDER = 1;
+    const SUBJECT_ORDER = 6;
 
     const questions = [
             { "q": "コンピュータを構成している装置や部品などのこと。", "a": "ハードウェア" },
