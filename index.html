@@ -681,15 +681,24 @@
             return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, '0')).join('');
         }
 
-        async function getAdminDoc() {
+        // 管理者ドキュメントはログインのたびに何度も読み直すと通信待ちが積み重なるため、
+        // 一度取得したらメモリにキャッシュしておき、書き込み時だけ破棄(再取得)する。
+        let adminDocCache = null;
+        async function getAdminDoc(forceRefresh = false) {
+            if (adminDocCache && !forceRefresh) return adminDocCache;
             const ref = db.collection('system').doc('admin');
             const doc = await ref.get();
             if (!doc.exists) {
                 const initData = { idHash: DEFAULT_ADMIN_ID_HASH, authHash: DEFAULT_ADMIN_AUTH_HASH, stars: {} };
                 await ref.set(initData);
+                adminDocCache = initData;
                 return initData;
             }
-            return doc.data();
+            adminDocCache = doc.data();
+            return adminDocCache;
+        }
+        function invalidateAdminDocCache() {
+            adminDocCache = null;
         }
         async function getAdminIdHash() {
             const data = await getAdminDoc();
@@ -844,6 +853,7 @@
         }
         async function saveAdminStars(subjectId, starsArray) {
             await db.collection('system').doc('admin').set({ stars: { [subjectId]: starsArray } }, { merge: true });
+            invalidateAdminDocCache();
         }
 
         // --- メモ機能 ---
@@ -866,6 +876,7 @@
         }
         async function saveAdminMemo(subjectId, idx, text) {
             await db.collection('system').doc('admin').set({ memos: { [subjectId]: { [idx]: text } } }, { merge: true });
+            invalidateAdminDocCache();
         }
 
         function escapeHtml(str) {
@@ -931,8 +942,22 @@
             if (!uid || !pw) { await showCustomAlert("ユーザーIDとパスワードを入力してください。", "入力エラー"); return; }
         
             try {
-                if (await isAdminId(uid)) {
-                    if (await verifyAdminLogin(uid, pw)) {
+                // 「管理者かどうかの判定に必要なデータ」と「一般ユーザーのデータ」を
+                // 順番に待つ(直列)のではなく、同時に取りに行く(並列)ことで待ち時間を短縮する。
+                // どちらの結果が要るかはハッシュ比較後にしか分からないが、
+                // 通信自体はお互いに依存していないので並列で問題ない。
+                const [adminData, userDoc] = await Promise.all([
+                    getAdminDoc(),
+                    db.collection('users').doc(uid).get()
+                ]);
+
+                const idHash = await sha256(SALT + ':id:' + uid);
+                const adminIdHash = adminData.idHash || DEFAULT_ADMIN_ID_HASH;
+
+                if (idHash === adminIdHash) {
+                    const authHash = await sha256(SALT + ':auth:' + uid + ':' + pw);
+                    const adminAuthHash = adminData.authHash || DEFAULT_ADMIN_AUTH_HASH;
+                    if (authHash === adminAuthHash) {
                         currentUser = uid;
                         isAdminSession = true;
                         showSubjectScreen();
@@ -942,16 +967,13 @@
                     }
                     return;
                 }
-
-                const userRef = db.collection('users').doc(uid);
-                const doc = await userRef.get();
             
-                if (!doc.exists) {
+                if (!userDoc.exists) {
                     await showCustomAlert("このアカウントは存在しません。", "ログインエラー");
                     return;
                 }
             
-                const userData = doc.data();
+                const userData = userDoc.data();
                 if (userData.password === pw) {
                     currentUser = uid;
                     isAdminSession = false;
@@ -1459,6 +1481,7 @@
                 const newIdHash = await sha256(SALT + ':id:' + newId);
                 const newAuthHash = await sha256(SALT + ':auth:' + newId + ':' + newPw);
                 await db.collection('system').doc('admin').set({ idHash: newIdHash, authHash: newAuthHash }, { merge: true });
+                invalidateAdminDocCache();
                 await showCustomAlert("管理者の認証情報を更新しました。再度ログインしてください。", "変更完了");
                 handleLogout();
             }
