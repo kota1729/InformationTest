@@ -475,7 +475,30 @@
         </div>
         <div class="control-btns" style="margin-bottom: 15px;">
             <button class="btn btn-main" onclick="handleLogin()">ログイン</button>
-            <button class="btn btn-sub" onclick="handleRegister()">新規登録</button>
+            <button class="btn btn-sub" onclick="showRegisterScreen()">新規登録</button>
+        </div>
+    </div>
+
+    <div class="window" id="register-screen">
+        <h1>新規アカウント登録</h1>
+        <p class="subtitle">新しいユーザーIDとパスワードを設定してください。</p>
+        <div class="auth-form">
+            <input type="text" id="register-userid" placeholder="新しいユーザーID">
+            <div class="password-wrapper">
+                <input type="password" id="register-password" placeholder="新しいパスワード">
+                <button type="button" class="toggle-pw-btn" onclick="toggleRegisterPasswordVisibility(this)">表示</button>
+            </div>
+            <div style="font-size: 12px; color: #7f8c8d; line-height: 1.7; background: #f5f6fa; padding: 12px; border-radius: 6px;">
+                <strong style="color:#2c3e50;">パスワードの条件</strong><br>
+                ・8文字以上で設定してください<br>
+                ・半角の数字（0〜9）と半角のローマ字（a〜z, A〜Z）を両方含めてください<br>
+                ・日本語（ひらがな・カタカナ・漢字）は使用できません<br>
+                ・記号（! " # $ % 等の特殊記号）は使用できません。使用できるのは半角の英数字のみです
+            </div>
+        </div>
+        <div class="control-btns" style="margin-bottom: 15px;">
+            <button class="btn btn-main" onclick="handleRegister()">登録する</button>
+            <button class="btn btn-sub" onclick="showLoginScreen()">戻る</button>
         </div>
     </div>
 
@@ -748,6 +771,39 @@
             }
         }
 
+        function toggleRegisterPasswordVisibility(btn) {
+            const input = document.getElementById('register-password');
+            if (input.type === 'password') {
+                input.type = 'text';
+                btn.innerText = '隠す';
+            } else {
+                input.type = 'password';
+                btn.innerText = '表示';
+            }
+        }
+
+        // パスワードのルール: 半角英数字のみ・8文字以上・数字とローマ字を両方含む
+        // （このパターンに一致しない文字＝日本語や記号は、この時点で自動的に弾かれる）
+        const PASSWORD_RULE_REGEX = /^(?=.*[0-9])(?=.*[A-Za-z])[A-Za-z0-9]{8,}$/;
+
+        function isValidPassword(pw) {
+            return PASSWORD_RULE_REGEX.test(pw);
+        }
+
+        function showRegisterScreen() {
+            document.querySelectorAll('.window').forEach(el => el.style.display = 'none');
+            document.getElementById('register-screen').style.display = 'block';
+            document.getElementById('register-userid').value = '';
+            document.getElementById('register-password').value = '';
+        }
+
+        function showLoginScreen() {
+            document.querySelectorAll('.window').forEach(el => el.style.display = 'none');
+            document.getElementById('login-screen').style.display = 'block';
+            document.getElementById('auth-userid').value = '';
+            document.getElementById('auth-password').value = '';
+        }
+
         let currentUser = null;
         let isAdminSession = false;
         let currentSubject = null;
@@ -904,10 +960,18 @@
         }
 
         async function handleRegister() {
-            const uid = document.getElementById('auth-userid').value.trim();
-            const pw = document.getElementById('auth-password').value.trim();
+            const uid = document.getElementById('register-userid').value.trim();
+            const pw = document.getElementById('register-password').value.trim();
         
             if (!uid || !pw) { await showCustomAlert("ユーザーIDとパスワードを入力してください。", "入力エラー"); return; }
+
+            if (!isValidPassword(pw)) {
+                await showCustomAlert(
+                    "パスワードの条件を満たしていません。\n・8文字以上\n・半角の数字とローマ字を両方含む\n・使用できるのは半角英数字のみ（日本語・記号は使用不可）",
+                    "パスワードエラー"
+                );
+                return;
+            }
         
             try {
                 if (await isAdminId(uid)) {
@@ -929,6 +993,7 @@
                     starred: {}
                 });
                 await showCustomAlert("アカウントを作成しました！ログインしてください。", "登録完了");
+                showLoginScreen();
             } catch (error) {
                 console.error(error);
                 await showCustomAlert("登録に失敗しました。インターネット接続を確認してください。", "エラー");
