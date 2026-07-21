@@ -276,6 +276,77 @@
         .btn-sub:hover { background: #d5d5d5; }
         .btn-danger { background: var(--accent); color: white; }
         .btn-danger:hover { background: #c0392b; }
+
+        .link-row {
+            text-align: center;
+            margin-top: 4px;
+        }
+        .link-btn {
+            background: none;
+            border: none;
+            padding: 0;
+            font-size: 12.5px;
+            color: #7f8c8d;
+            text-decoration: underline;
+            cursor: pointer;
+        }
+        .link-btn:hover {
+            color: var(--accent);
+        }
+
+        .pw-rules {
+            font-size: 12px;
+            color: #7f8c8d;
+            line-height: 1.9;
+            background: #f5f6fa;
+            padding: 12px;
+            border-radius: 6px;
+        }
+        .pw-rules-title {
+            color: #2c3e50;
+            font-weight: bold;
+            display: block;
+            margin-bottom: 4px;
+        }
+        .pw-rule-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            transition: color 0.2s;
+        }
+        .pw-rule-icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 15px;
+            height: 15px;
+            border-radius: 50%;
+            background: #ccc;
+            color: #fff;
+            font-size: 10px;
+            font-weight: bold;
+            flex-shrink: 0;
+            transition: background 0.2s;
+        }
+        .pw-rule-icon::before {
+            content: "×";
+        }
+        .pw-rule-item.valid {
+            color: #27ae60;
+        }
+        .pw-rule-item.valid .pw-rule-icon {
+            background: #27ae60;
+        }
+        .pw-rule-item.valid .pw-rule-icon::before {
+            content: "✓";
+        }
+        .pw-match-status {
+            margin-top: 6px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        .pw-match-status.ok { color: #27ae60; }
+        .pw-match-status.ng { color: var(--accent); }
         
         .btn:disabled {
             background: #eebdbebd !important;
@@ -475,7 +546,9 @@
         </div>
         <div class="control-btns" style="margin-bottom: 15px;">
             <button class="btn btn-main" onclick="handleLogin()">ログイン</button>
-            <button class="btn btn-sub" onclick="showRegisterScreen()">新規登録</button>
+        </div>
+        <div class="link-row">
+            <button type="button" class="link-btn" onclick="showRegisterScreen()">新規登録はこちら</button>
         </div>
     </div>
 
@@ -485,15 +558,16 @@
         <div class="auth-form">
             <input type="text" id="register-userid" placeholder="新しいユーザーID">
             <div class="password-wrapper">
-                <input type="password" id="register-password" placeholder="新しいパスワード">
+                <input type="password" id="register-password" placeholder="新しいパスワード" oninput="updatePasswordRuleStatus()">
                 <button type="button" class="toggle-pw-btn" onclick="toggleRegisterPasswordVisibility(this)">表示</button>
             </div>
-            <div style="font-size: 12px; color: #7f8c8d; line-height: 1.7; background: #f5f6fa; padding: 12px; border-radius: 6px;">
-                <strong style="color:#2c3e50;">パスワードの条件</strong><br>
-                ・8文字以上で設定してください<br>
-                ・半角の数字（0〜9）と半角のローマ字（a〜z, A〜Z）を両方含めてください<br>
-                ・日本語（ひらがな・カタカナ・漢字）は使用できません<br>
-                ・記号（! " # $ % 等の特殊記号）は使用できません。使用できるのは半角の英数字のみです
+            <div class="pw-rules">
+                <span class="pw-rules-title">パスワードの条件</span>
+                <div class="pw-rule-item" id="rule-length"><span class="pw-rule-icon"></span>8文字以上で設定してください</div>
+                <div class="pw-rule-item" id="rule-number"><span class="pw-rule-icon"></span>半角の数字（0〜9）を含めてください</div>
+                <div class="pw-rule-item" id="rule-alpha"><span class="pw-rule-icon"></span>半角のローマ字（a〜z, A〜Z）を含めてください</div>
+                <div class="pw-rule-item" id="rule-charset"><span class="pw-rule-icon"></span>使用できるのは半角の英数字のみです（日本語・記号は不可）</div>
+                <div class="pw-match-status" id="pw-match-status"></div>
             </div>
         </div>
         <div class="control-btns" style="margin-bottom: 15px;">
@@ -785,9 +859,45 @@
         // パスワードのルール: 半角英数字のみ・8文字以上・数字とローマ字を両方含む
         // （このパターンに一致しない文字＝日本語や記号は、この時点で自動的に弾かれる）
         const PASSWORD_RULE_REGEX = /^(?=.*[0-9])(?=.*[A-Za-z])[A-Za-z0-9]{8,}$/;
+        const PASSWORD_HAS_NUMBER_REGEX = /[0-9]/;
+        const PASSWORD_HAS_ALPHA_REGEX = /[A-Za-z]/;
+        const PASSWORD_CHARSET_ONLY_REGEX = /^[A-Za-z0-9]*$/;
 
         function isValidPassword(pw) {
             return PASSWORD_RULE_REGEX.test(pw);
+        }
+
+        // パスワード入力中に、各条件を満たしているかをリアルタイムで表示する
+        function updatePasswordRuleStatus() {
+            const pw = document.getElementById('register-password').value;
+
+            const checks = {
+                'rule-length': pw.length >= 8,
+                'rule-number': PASSWORD_HAS_NUMBER_REGEX.test(pw),
+                'rule-alpha': PASSWORD_HAS_ALPHA_REGEX.test(pw),
+                'rule-charset': pw.length > 0 && PASSWORD_CHARSET_ONLY_REGEX.test(pw)
+            };
+
+            Object.keys(checks).forEach(id => {
+                const el = document.getElementById(id);
+                if (!el) return;
+                el.classList.toggle('valid', checks[id]);
+                el.classList.toggle('invalid', !checks[id]);
+            });
+
+            const statusEl = document.getElementById('pw-match-status');
+            if (statusEl) {
+                if (pw.length === 0) {
+                    statusEl.textContent = '';
+                    statusEl.className = 'pw-match-status';
+                } else if (isValidPassword(pw)) {
+                    statusEl.textContent = '✓ すべての条件を満たしています';
+                    statusEl.className = 'pw-match-status ok';
+                } else {
+                    statusEl.textContent = 'まだ条件を満たしていません';
+                    statusEl.className = 'pw-match-status ng';
+                }
+            }
         }
 
         function showRegisterScreen() {
@@ -795,6 +905,7 @@
             document.getElementById('register-screen').style.display = 'block';
             document.getElementById('register-userid').value = '';
             document.getElementById('register-password').value = '';
+            updatePasswordRuleStatus();
         }
 
         function showLoginScreen() {
